@@ -214,6 +214,58 @@ public class Unit
 		return Unit.has_component_static(out component_id, out owner_id, component_type, _db, _id);
 	}
 
+	public void send_component_type(ConsoleClient _editor, Guid unit_id, Guid component_id)
+	{
+		string component_type = _db.get_property_string(component_id, "type");
+		Unit unit = new Unit(_db, unit_id);
+
+		if (component_type == OBJECT_TYPE_TRANSFORM) {
+			_editor.send_script(LevelEditorApi.move_object(unit_id
+				, unit.get_component_property_vector3   (component_id, "data.position")
+				, unit.get_component_property_quaternion(component_id, "data.rotation")
+				, unit.get_component_property_vector3   (component_id, "data.scale")
+				));
+		} else if (component_type == OBJECT_TYPE_CAMERA) {
+			_editor.send_script(LevelEditorApi.set_camera(unit_id
+				, unit.get_component_property_string(component_id, "data.projection")
+				, unit.get_component_property_double(component_id, "data.fov")
+				, unit.get_component_property_double(component_id, "data.far_range")
+				, unit.get_component_property_double(component_id, "data.near_range")
+				));
+		} else if (component_type == OBJECT_TYPE_MESH_RENDERER) {
+			_editor.send_script(LevelEditorApi.set_mesh(unit_id
+				, unit.get_component_property_string(component_id, "data.material")
+				, unit.get_component_property_bool  (component_id, "data.visible")
+				));
+		} else if (component_type == OBJECT_TYPE_SPRITE_RENDERER) {
+			_editor.send_script(LevelEditorApi.set_sprite(unit_id
+				, unit.get_component_property_string(component_id, "data.sprite_resource")
+				, unit.get_component_property_string(component_id, "data.material")
+				, unit.get_component_property_double(component_id, "data.layer")
+				, unit.get_component_property_double(component_id, "data.depth")
+				, unit.get_component_property_bool  (component_id, "data.visible")
+				));
+		} else if (component_type == OBJECT_TYPE_LIGHT) {
+			_editor.send_script(LevelEditorApi.set_light(unit_id
+				, unit.get_component_property_string (component_id, "data.type")
+				, unit.get_component_property_double (component_id, "data.range")
+				, unit.get_component_property_double (component_id, "data.intensity")
+				, unit.get_component_property_double (component_id, "data.spot_angle")
+				, unit.get_component_property_vector3(component_id, "data.color")
+				));
+		} else if (component_type == OBJECT_TYPE_SCRIPT) {
+			/* No sync. */
+		} else if (component_type == OBJECT_TYPE_COLLIDER) {
+			/* No sync. */
+		} else if (component_type == OBJECT_TYPE_ACTOR) {
+			/* No sync. */
+		} else if (component_type == OBJECT_TYPE_ANIMATION_STATE_MACHINE) {
+			/* No sync. */
+		} else {
+			logw("Unregistered component type `%s`".printf(component_type));
+		}
+	}
+
 	public void remove_component(Guid component_id)
 	{
 		_db.remove_from_set(_id, "components", component_id);

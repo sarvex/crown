@@ -507,7 +507,8 @@ public class LevelEditorApplication : Gtk.Application
 		_project_browser = new ProjectBrowser(this, _project, _project_store);
 		_level_treeview = new LevelTreeView(_database, _level);
 		_level_layers_treeview = new LevelLayersTreeView(_database, _level);
-		_properties_view = new PropertiesView(_level, _project_store);
+		_properties_view = new PropertiesView(_database, _project_store);
+		_level.selection_changed.connect(_properties_view.on_selection_changed);
 
 		_project_stack = new Gtk.Stack();
 		_project_stack.add(_project_browser);
