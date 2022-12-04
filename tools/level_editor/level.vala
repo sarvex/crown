@@ -11,6 +11,7 @@ namespace Crown
 public class Level
 {
 	public Project _project;
+	public bool _reflect = true;
 
 	// Engine connections
 	public ConsoleClient _client;
@@ -39,7 +40,6 @@ public class Level
 
 		// Data
 		_db = db;
-		_db.undo_redo.connect(undo_redo_action);
 
 		_selection = new Gee.ArrayList<Guid?>();
 
@@ -62,6 +62,12 @@ public class Level
 		_id = GUID_ZERO;
 	}
 
+	public void database_key_changed(Guid object_id, string key)
+	{
+		stdout.printf("key_changed: %s %s\n\n", object_id.to_string(), key);
+		reflect();
+	}
+
 	public int load_from_path(string name)
 	{
 		string resource_path = name + ".level";
@@ -70,6 +76,8 @@ public class Level
 		FileStream fs = FileStream.open(path, "rb");
 		if (fs == null)
 			return 1;
+
+		_db.key_changed.disconnect(database_key_changed);
 
 		reset();
 		int ret = _db.load_from_file(out _id, fs, resource_path);
@@ -245,6 +253,8 @@ public class Level
 
 	public void on_move_objects(Guid[] ids, Vector3[] positions, Quaternion[] rotations, Vector3[] scales)
 	{
+		_reflect = false;
+
 		for (int i = 0; i < ids.length; ++i) {
 			Guid id = ids[i];
 			Vector3 pos = positions[i];
@@ -272,6 +282,7 @@ public class Level
 
 		// FIXME: Hack to force update the properties view
 		selection_changed(_selection);
+		_reflect = true;
 	}
 
 	public void on_selection(Guid[] ids)
@@ -348,9 +359,13 @@ public class Level
 
 	private void send_destroy_objects(Guid[] ids)
 	{
+		HashSet<Guid?> units = _db.get_property_set(_id, "units", new HashSet<Guid?>());
+
 		StringBuilder sb = new StringBuilder();
-		foreach (Guid id in ids)
-			sb.append(LevelEditorApi.destroy(id));
+		foreach (Guid id in ids) {
+			if (units.contains(id))
+				sb.append(LevelEditorApi.destroy(id));
+		}
 
 		_client.send_script(sb.str);
 		_client.send(DeviceApi.frame());
@@ -358,9 +373,13 @@ public class Level
 
 	private void send_move_objects(Guid[] ids, Vector3[] positions, Quaternion[] rotations, Vector3[] scales)
 	{
+		HashSet<Guid?> units = _db.get_property_set(_id, "units", new HashSet<Guid?>());
+
 		StringBuilder sb = new StringBuilder();
-		for (int i = 0; i < ids.length; ++i)
-			sb.append(LevelEditorApi.move_object(ids[i], positions[i], rotations[i], scales[i]));
+		for (int i = 0; i < ids.length; ++i) {
+			if (units.contains(ids[i]))
+				sb.append(LevelEditorApi.move_object(ids[i], positions[i], rotations[i], scales[i]));
+		}
 
 		_client.send_script(sb.str);
 		_client.send(DeviceApi.frame());
@@ -395,6 +414,8 @@ public class Level
 
 		send_selection();
 		_client.send(DeviceApi.frame());
+
+		_db.key_changed.connect(database_key_changed);
 	}
 
 	private void generate_spawn_unit_commands(Guid[] unit_ids, StringBuilder sb)
@@ -402,59 +423,101 @@ public class Level
 		foreach (Guid unit_id in unit_ids) {
 			Unit unit = new Unit(_db, unit_id);
 
-			sb.append(LevelEditorApi.spawn_empty_unit(unit_id));
+			if (false && unit.has_prefab()) {
+				Vector3 unit_position = VECTOR3_ZERO;
+				Quaternion unit_rotation = QUATERNION_IDENTITY;
+				Vector3 unit_scale = VECTOR3_ONE;
 
-			Guid component_id;
-			if (unit.has_component(out component_id, "transform")) {
-				string s = LevelEditorApi.add_tranform_component(unit_id
-					, component_id
-					, unit.get_component_property_vector3   (component_id, "data.position")
-					, unit.get_component_property_quaternion(component_id, "data.rotation")
-					, unit.get_component_property_vector3   (component_id, "data.scale")
-					);
-				sb.append(s);
-			}
-			if (unit.has_component(out component_id, "camera")) {
-				string s = LevelEditorApi.add_camera_component(unit_id
-					, component_id
-					, unit.get_component_property_string(component_id, "data.projection")
-					, unit.get_component_property_double(component_id, "data.fov")
-					, unit.get_component_property_double(component_id, "data.far_range")
-					, unit.get_component_property_double(component_id, "data.near_range")
-					);
-				sb.append(s);
-			}
-			if (unit.has_component(out component_id, "mesh_renderer")) {
-				string s = LevelEditorApi.add_mesh_renderer_component(unit_id
-					, component_id
-					, unit.get_component_property_string(component_id, "data.mesh_resource")
-					, unit.get_component_property_string(component_id, "data.geometry_name")
-					, unit.get_component_property_string(component_id, "data.material")
-					, unit.get_component_property_bool  (component_id, "data.visible")
-					);
-				sb.append(s);
-			}
-			if (unit.has_component(out component_id, "sprite_renderer")) {
-				string s = LevelEditorApi.add_sprite_renderer_component(unit_id
-					, component_id
-					, unit.get_component_property_string(component_id, "data.sprite_resource")
-					, unit.get_component_property_string(component_id, "data.material")
-					, unit.get_component_property_double(component_id, "data.layer")
-					, unit.get_component_property_double(component_id, "data.depth")
-					, unit.get_component_property_bool  (component_id, "data.visible")
-					);
-				sb.append(s);
-			}
-			if (unit.has_component(out component_id, "light")) {
-				string s = LevelEditorApi.add_light_component(unit_id
-					, component_id
-					, unit.get_component_property_string (component_id, "data.type")
-					, unit.get_component_property_double (component_id, "data.range")
-					, unit.get_component_property_double (component_id, "data.intensity")
-					, unit.get_component_property_double (component_id, "data.spot_angle")
-					, unit.get_component_property_vector3(component_id, "data.color")
-					);
-				sb.append(s);
+				Guid component_id;
+				if (unit.has_component(out component_id, OBJECT_TYPE_TRANSFORM)) {
+					unit_position = unit.get_component_property_vector3   (component_id, "data.position");
+					unit_rotation = unit.get_component_property_quaternion(component_id, "data.rotation");
+					unit_scale    = unit.get_component_property_vector3   (component_id, "data.scale");
+				} else {
+					unit_position = _db.get_property_vector3   (unit_id, "position");
+					unit_rotation = _db.get_property_quaternion(unit_id, "rotation");
+					unit_scale    = _db.get_property_vector3   (unit_id, "scale");
+				}
+
+				string unit_name = _db.get_property_string(unit_id, "prefab");
+				logi("spawning %s at %s, %s, %s".printf(unit_name
+					, unit_position.to_string()
+					, unit_rotation.to_string()
+					, unit_scale.to_string()
+					));
+				sb.append(LevelEditorApi.spawn_unit(unit_id
+					, unit_name
+					, unit_position
+					, unit_rotation
+					, unit_scale
+					));
+			} else {
+				sb.append(LevelEditorApi.spawn_empty_unit(unit_id));
+
+				Guid component_id;
+				if (unit.has_component(out component_id, OBJECT_TYPE_TRANSFORM)) {
+					Vector3 unit_position = VECTOR3_ZERO;
+					Quaternion unit_rotation = QUATERNION_IDENTITY;
+					Vector3 unit_scale = VECTOR3_ONE;
+					unit_position = unit.get_component_property_vector3   (component_id, "data.position");
+					unit_rotation = unit.get_component_property_quaternion(component_id, "data.rotation");
+					unit_scale    = unit.get_component_property_vector3   (component_id, "data.scale");
+
+					logi("spawning %s at %s, %s, %s".printf("unnamed"
+						, unit_position.to_string()
+						, unit_rotation.to_string()
+						, unit_scale.to_string()
+						));
+					string s = LevelEditorApi.add_tranform_component(unit_id
+						, component_id
+						, unit_position
+						, unit_rotation
+						, unit_scale
+						);
+					sb.append(s);
+				}
+				if (unit.has_component(out component_id, OBJECT_TYPE_CAMERA)) {
+					string s = LevelEditorApi.add_camera_component(unit_id
+						, component_id
+						, unit.get_component_property_string(component_id, "data.projection")
+						, unit.get_component_property_double(component_id, "data.fov")
+						, unit.get_component_property_double(component_id, "data.far_range")
+						, unit.get_component_property_double(component_id, "data.near_range")
+						);
+					sb.append(s);
+				}
+				if (unit.has_component(out component_id, OBJECT_TYPE_MESH_RENDERER)) {
+					string s = LevelEditorApi.add_mesh_renderer_component(unit_id
+						, component_id
+						, unit.get_component_property_string(component_id, "data.mesh_resource")
+						, unit.get_component_property_string(component_id, "data.geometry_name")
+						, unit.get_component_property_string(component_id, "data.material")
+						, unit.get_component_property_bool  (component_id, "data.visible")
+						);
+					sb.append(s);
+				}
+				if (unit.has_component(out component_id, OBJECT_TYPE_SPRITE_RENDERER)) {
+					string s = LevelEditorApi.add_sprite_renderer_component(unit_id
+						, component_id
+						, unit.get_component_property_string(component_id, "data.sprite_resource")
+						, unit.get_component_property_string(component_id, "data.material")
+						, unit.get_component_property_double(component_id, "data.layer")
+						, unit.get_component_property_double(component_id, "data.depth")
+						, unit.get_component_property_bool  (component_id, "data.visible")
+						);
+					sb.append(s);
+				}
+				if (unit.has_component(out component_id, OBJECT_TYPE_LIGHT)) {
+					string s = LevelEditorApi.add_light_component(unit_id
+						, component_id
+						, unit.get_component_property_string (component_id, "data.type")
+						, unit.get_component_property_double (component_id, "data.range")
+						, unit.get_component_property_double (component_id, "data.intensity")
+						, unit.get_component_property_double (component_id, "data.spot_angle")
+						, unit.get_component_property_vector3(component_id, "data.color")
+						);
+					sb.append(s);
+				}
 			}
 		}
 	}
@@ -474,7 +537,7 @@ public class Level
 		}
 	}
 
-	private void undo_redo_action(bool undo, uint32 id, Guid[] data)
+	public void on_undo_redo(bool undo, uint32 id, Guid[] data)
 	{
 		switch (id) {
 		case (int)ActionType.SPAWN_UNIT:
@@ -656,6 +719,25 @@ public class Level
 		default:
 			loge("Unknown undo/redo action: %u".printf(id));
 			break;
+		}
+	}
+
+	public void reflect(Guid only_unit_id = GUID_ZERO)
+	{
+		if (_reflect == false)
+			return;
+
+		if (_id == GUID_ZERO)
+			return;
+
+		stdout.printf("reflecting\n");
+		HashSet<Guid?> units = _db.get_property_set(_id, "units", new HashSet<Guid?>());
+
+		foreach (var unit_id in units) {
+			if (only_unit_id == GUID_ZERO || only_unit_id == unit_id) {
+				Unit unit = new Unit(_db, unit_id);
+				unit.send_all_components(_client, unit_id);
+			}
 		}
 	}
 }

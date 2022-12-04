@@ -4892,3 +4892,11 @@ popover.emoji-completion .emoji:hover {
 .axis.w {
 	background: rgba(120, 120, 120, 0.8);
 }
+
+.properties-view expander title label {
+    color: rgb(30, 130, 30);
+}
+
+.properties-view expander.inherited title label {
+    color: rgb(150, 100, 0);
+}

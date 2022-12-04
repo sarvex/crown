@@ -23,7 +23,9 @@ public enum ActionType
 	SET_ACTOR,
 	SET_SCRIPT,
 	SET_ANIMATION_STATE_MACHINE,
-	SET_SOUND
+	SET_SOUND,
+	UNIT_ADD_COMPONENT,
+	UNIT_REMOVE_COMPONENT
 }
 
 public const string ActionNames[] =
@@ -44,7 +46,9 @@ public const string ActionNames[] =
 	"Set Actor Parameter",
 	"Set Script Parameter",
 	"Set Animation State Machine Parameter",
-	"Set Sound Parameter"
+	"Set Sound Parameter",
+	"Add Unit Component",
+	"Remove Unit Component"
 };
 
 } /* namespace Crown */

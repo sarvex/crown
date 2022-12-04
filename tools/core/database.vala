@@ -346,7 +346,7 @@ public class Stack
 		uint32 num_guids = read_uint32();
 		Guid[] ids = new Guid[num_guids];
 		for (uint32 i = 0; i < num_guids; ++i)
-			ids[i] = read_guid();
+			ids[num_guids - i - 1] = read_guid();
 
 		RestorePointHeader rph = { id, size, num_guids };
 		return { rph, ids };
@@ -407,6 +407,7 @@ public class Database
 	public signal void key_changed(Guid id, string key);
 	public signal void object_created(Guid id);
 	public signal void object_destroyed(Guid id);
+	public signal void before_undo_redo(bool undo, uint32 id, Guid[] data);
 	public signal void undo_redo(bool undo, uint32 id, Guid[] data);
 
 	public Database(Project project, UndoRedo? undo_redo = null)
@@ -771,10 +772,12 @@ public class Database
 		if (_debug)
 			logi("create %s".printf(id.to_string()));
 
-		_data[id] = new HashMap<string, Value?>();
+		// destroy(id) does not actually destroy the data associated
+		// with the object.
+		if (!_data.has_key(id))
+			_data[id] = new HashMap<string, Value?>();
 
 		_distance_from_last_sync += dir;
-		object_created(id);
 	}
 
 	private void destroy_internal(int dir, Guid id)
@@ -785,10 +788,9 @@ public class Database
 		if (_debug)
 			logi("destroy %s".printf(id.to_string()));
 
-		object_destroyed(id);
 		_distance_from_last_sync += dir;
 
-		_data.unset(id);
+		// _data.unset(id);
 	}
 
 	private void set_property_internal(int dir, Guid id, string key, Value? value)
@@ -804,7 +806,6 @@ public class Database
 		ob[key] = value;
 
 		_distance_from_last_sync += dir;
-		key_changed(id, key);
 	}
 
 	private void create_empty_set(int dir, Guid id, string key)
@@ -839,7 +840,6 @@ public class Database
 		}
 
 		_distance_from_last_sync += dir;
-		key_changed(id, key);
 	}
 
 	private void remove_from_set_internal(int dir, Guid id, string key, Guid item_id)
@@ -897,22 +897,7 @@ public class Database
 
 		string obj_type = object_type(id);
 
-		HashMap<string, Value?> o = get_data(id);
-		string[] keys = o.keys.to_array();
-
-		foreach (string key in keys) {
-			Value? value = o[key];
-			if (value.holds(typeof(HashSet))) {
-				HashSet<Guid?> hs = (HashSet<Guid?>)value;
-				Guid?[] ids = hs.to_array();
-				foreach (Guid item_id in ids) {
-					remove_from_set(id, key, item_id);
-					destroy(item_id);
-				}
-			} else {
-				set_property_null(id, key);
-			}
-		}
+		object_destroyed(id);
 
 		if (_undo_redo != null) {
 			_undo_redo._undo.write_create_action(Action.CREATE, id, obj_type);
@@ -951,6 +936,7 @@ public class Database
 		}
 
 		set_property_internal(1, id, key, null);
+		key_changed(id, key);
 	}
 
 	public void set_property_bool(Guid id, string key, bool val)
@@ -970,6 +956,7 @@ public class Database
 		}
 
 		set_property_internal(1, id, key, val);
+		key_changed(id, key);
 	}
 
 	public void set_property_double(Guid id, string key, double val)
@@ -989,6 +976,7 @@ public class Database
 		}
 
 		set_property_internal(1, id, key, val);
+		key_changed(id, key);
 	}
 
 	public void set_property_string(Guid id, string key, string val)
@@ -1008,6 +996,7 @@ public class Database
 		}
 
 		set_property_internal(1, id, key, val);
+		key_changed(id, key);
 	}
 
 	public void set_property_guid(Guid id, string key, Guid val)
@@ -1027,6 +1016,7 @@ public class Database
 		}
 
 		set_property_internal(1, id, key, val);
+		key_changed(id, key);
 	}
 
 	public void set_property_vector3(Guid id, string key, Vector3 val)
@@ -1046,6 +1036,7 @@ public class Database
 		}
 
 		set_property_internal(1, id, key, val);
+		key_changed(id, key);
 	}
 
 	public void set_property_quaternion(Guid id, string key, Quaternion val)
@@ -1065,6 +1056,7 @@ public class Database
 		}
 
 		set_property_internal(1, id, key, val);
+		key_changed(id, key);
 	}
 
 	public void add_to_set(Guid id, string key, Guid item_id)
@@ -1304,6 +1296,7 @@ public class Database
 
 		undo_or_redo(_undo_redo._undo, _undo_redo._redo, rp.header.size);
 
+		before_undo_redo(true, rp.header.id, rp.data);
 		undo_redo(true, rp.header.id, rp.data);
 		_undo_redo._redo.write_restore_point(rp.header.id, rp.data);
 
@@ -1323,6 +1316,7 @@ public class Database
 
 		undo_or_redo(_undo_redo._redo, _undo_redo._undo, rp.header.size);
 
+		before_undo_redo(false, rp.header.id, rp.data);
 		undo_redo(false, rp.header.id, rp.data);
 		_undo_redo._undo.write_restore_point(rp.header.id, rp.data);
 

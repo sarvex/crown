@@ -523,26 +523,91 @@ public class AnimationStateMachine : PropertyGrid
 
 public class UnitView : PropertyGrid
 {
+	// Data
+	ProjectStore _store;
+	Gtk.Popover add_popover;
+
 	// Widgets
 	private ResourceChooserButton _prefab;
+	private Gtk.MenuButton _component_add;
+	private Gtk.Button _open_prefab;
+	private Gtk.Box _components;
+
+	private void on_add_component_clicked(Gtk.Button button)
+	{
+		Gtk.Application app = ((Gtk.Window)this.get_toplevel()).application;
+		app.activate_action("unit-add-component", new GLib.Variant.string(button.label));
+
+		add_popover.hide();
+	}
 
 	public UnitView(Database db, ProjectStore store)
 	{
 		base(db);
 
+		_store = store;
+
 		// Widgets
 		_prefab = new ResourceChooserButton(store, "unit");
 		_prefab._selector.sensitive = false;
 
+		// List of component types.
+		const string components[] =
+		{
+			OBJECT_TYPE_TRANSFORM,
+			OBJECT_TYPE_LIGHT,
+			OBJECT_TYPE_CAMERA,
+			OBJECT_TYPE_MESH_RENDERER,
+			OBJECT_TYPE_SPRITE_RENDERER,
+			OBJECT_TYPE_COLLIDER,
+			OBJECT_TYPE_ACTOR,
+			OBJECT_TYPE_SCRIPT,
+			OBJECT_TYPE_ANIMATION_STATE_MACHINE
+		};
+
+		Gtk.Box add_box = new Gtk.Box(Gtk.Orientation.VERTICAL, 0);
+		for (int cc = 0; cc < components.length; ++cc) {
+			Gtk.Button mb;
+			mb = new Gtk.Button.with_label(components[cc]);
+			mb.clicked.connect(on_add_component_clicked);
+			add_box.pack_start(mb);
+		}
+		add_box.show_all();
+		add_popover = new Gtk.Popover(null);
+		add_popover.add(add_box);
+
+		_component_add = new Gtk.MenuButton();
+		_component_add.label = "Add";
+		_component_add.set_popover(add_popover);
+
+		_components = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
+		_components.homogeneous = true;
+		_components.pack_start(_component_add);
+
+		_open_prefab = new Gtk.Button.with_label("Open prefab");
+		_open_prefab.clicked.connect(() => {
+			var win = new Gtk.Window();
+			var properties = new PropertiesView(_db, _store);
+			Guid prefab_id = _db.get_property_guid(GUID_ZERO, _prefab.value + ".unit");
+			win.add(properties);
+			win.set_size_request(400, 800);
+			win.show_all();
+			properties.show_unit(prefab_id);
+		});
+
 		add_row("Prefab", _prefab);
+		add_row("Components", _components);
+		add_row("Components", _open_prefab);
 	}
 
 	public override void update()
 	{
 		if (_db.has_property(_id, "prefab")) {
 			_prefab.value = _db.get_property_string(_id, "prefab");
+			_open_prefab.sensitive = true;
 		} else {
 			_prefab.value = "<none>";
+			_open_prefab.sensitive = false;
 		}
 	}
 }
@@ -703,6 +768,26 @@ public class PropertiesView : Gtk.Bin
 	private void register_object_type(string label, string object_type, int position, PropertyGrid cv)
 	{
 		Gtk.Expander expander = _object_view.add_property_grid(cv, label);
+		expander.button_release_event.connect((ev) => {
+				if (ev.button == Gdk.BUTTON_SECONDARY) {
+					Gtk.Menu menu = new Gtk.Menu();
+					Gtk.MenuItem mi;
+
+					mi = new Gtk.MenuItem.with_label("Delete");
+					mi.activate.connect(() => {
+						Gtk.Application app = ((Gtk.Window)this.get_toplevel()).application;
+						app.activate_action("unit-remove-component", new GLib.Variant.string(object_type));
+					});
+					menu.add(mi);
+
+					menu.show_all();
+					menu.popup(null, null, null, ev.button, ev.time);
+					return Gdk.EVENT_STOP;
+				}
+
+				return Gdk.EVENT_PROPAGATE;
+			});
+
 		_objects[object_type] = cv;
 		_expanders[object_type] = expander;
 		_entries.add({ object_type, position });
@@ -717,11 +802,18 @@ public class PropertiesView : Gtk.Bin
 
 			Unit unit = new Unit(_db, id);
 			Guid component_id;
-			if (unit.has_component(out component_id, entry.type) || entry.type == "name") {
+			Guid owner_id;
+			if (unit.has_component_with_owner(out component_id, out owner_id, entry.type) || entry.type == "name") {
 				PropertyGrid cv = _objects[entry.type];
 				cv._id = id;
 				cv._component_id = component_id;
 				cv.update();
+
+				if (id == owner_id)
+					expander.get_style_context().remove_class("inherited");
+				else
+					expander.get_style_context().add_class("inherited");
+
 				expander.show_all();
 			} else {
 				expander.hide();

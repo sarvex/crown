@@ -231,6 +231,12 @@ public class LevelEditorApplication : Gtk.Application
 		{ "delete-file", on_delete_file, "s", null }
 	};
 
+	private const GLib.ActionEntry[] action_entries_unit =
+	{
+		{ "unit-add-component",    on_unit_add_component,    "s", null },
+		{ "unit-remove-component", on_unit_remove_component, "s", null }
+	};
+
 	// Command line options
 	private string? _source_dir = null;
 	private string _level_resource = "";
@@ -419,6 +425,7 @@ public class LevelEditorApplication : Gtk.Application
 		this.add_action_entries(action_entries_debug, this);
 		this.add_action_entries(action_entries_help, this);
 		this.add_action_entries(action_entries_project, this);
+		this.add_action_entries(action_entries_unit, this);
 
 		_tool_place_accels = this.get_accels_for_action("app.tool::place");
 		_tool_move_accels = this.get_accels_for_action("app.tool::move");
@@ -455,6 +462,8 @@ public class LevelEditorApplication : Gtk.Application
 		_undo_redo = new UndoRedo(undo_redo_size*1024*1024);
 		_database = new Database(_project, _undo_redo);
 		_database.key_changed.connect(() => { update_active_window_title(); });
+		_database.before_undo_redo.connect(on_before_undo_redo);
+		_database.undo_redo.connect(on_undo_redo);
 
 		_editor = new ConsoleClient();
 		_editor.connected.connect(on_editor_connected);
@@ -493,6 +502,17 @@ public class LevelEditorApplication : Gtk.Application
 		_game_process = uint32.MAX;
 
 		_project_store = new ProjectStore(_project);
+
+		// Register component types.
+		Unit.register_component_type(OBJECT_TYPE_TRANSFORM,               "");
+		Unit.register_component_type(OBJECT_TYPE_LIGHT,                   OBJECT_TYPE_TRANSFORM);
+		Unit.register_component_type(OBJECT_TYPE_CAMERA,                  "");
+		Unit.register_component_type(OBJECT_TYPE_MESH_RENDERER,           OBJECT_TYPE_TRANSFORM);
+		Unit.register_component_type(OBJECT_TYPE_SPRITE_RENDERER,         OBJECT_TYPE_TRANSFORM);
+		Unit.register_component_type(OBJECT_TYPE_COLLIDER,                OBJECT_TYPE_TRANSFORM);
+		Unit.register_component_type(OBJECT_TYPE_ACTOR,                   OBJECT_TYPE_TRANSFORM);
+		Unit.register_component_type(OBJECT_TYPE_SCRIPT,                  "");
+		Unit.register_component_type(OBJECT_TYPE_ANIMATION_STATE_MACHINE, "");
 
 		// Widgets
 		_preferences_dialog = new PreferencesDialog(this);
@@ -1035,6 +1055,55 @@ public class LevelEditorApplication : Gtk.Application
 
 		// Receive next message
 		client.receive_async();
+	}
+
+	private void on_before_undo_redo(bool undo, uint32 id, Guid[] data)
+	{
+		switch (id) {
+		case (int)ActionType.UNIT_ADD_COMPONENT:
+			Guid unit_id = data[0];
+			Guid component_id = data[1];
+
+			if (undo)
+				send_unit_remove_component(unit_id, component_id);
+			break;
+
+		case (int)ActionType.UNIT_REMOVE_COMPONENT:
+			Guid unit_id = data[0];
+			Guid component_id = data[1];
+
+			if (!undo)
+				send_unit_remove_component(unit_id, component_id);
+			break;
+
+		default:
+			break;
+		}
+	}
+
+	private void on_undo_redo(bool undo, uint32 id, Guid[] data)
+	{
+		switch (id) {
+		case (int)ActionType.UNIT_ADD_COMPONENT:
+			Guid unit_id = data[0];
+			Guid component_id = data[1];
+
+			if (!undo)
+				send_unit_add_component(unit_id, component_id);
+			break;
+
+		case (int)ActionType.UNIT_REMOVE_COMPONENT:
+			Guid unit_id = data[0];
+			Guid component_id = data[1];
+
+			if (undo)
+				send_unit_add_component(unit_id, component_id);
+			break;
+
+		default:
+			_level.on_undo_redo(undo, id, data);
+			break;
+		}
 	}
 
 	private void append_editor_state(StringBuilder sb)
@@ -1944,6 +2013,9 @@ public class LevelEditorApplication : Gtk.Application
 	{
 		string destination_dir = param.get_string();
 		_project.import(destination_dir != "" ? destination_dir : null, this.active_window);
+
+		// FIXME: hack to force PropertiesView to update.
+		_level.selection_changed(_level._selection);
 	}
 
 	private void on_preferences(GLib.SimpleAction action, GLib.Variant? param)
@@ -2427,6 +2499,178 @@ public class LevelEditorApplication : Gtk.Application
 		}
 	}
 
+	private void send_unit_add_component(Guid unit_id, Guid component_id)
+	{
+		string component_type = _database.get_property_string(component_id, "type");
+		Unit unit = new Unit(_database, unit_id);
+
+		if (component_type == OBJECT_TYPE_TRANSFORM) {
+			_editor.send_script(LevelEditorApi.add_tranform_component(unit_id
+				, component_id
+				, unit.get_component_property_vector3   (component_id, "data.position")
+				, unit.get_component_property_quaternion(component_id, "data.rotation")
+				, unit.get_component_property_vector3   (component_id, "data.scale")
+				));
+		} else if (component_type == OBJECT_TYPE_CAMERA) {
+			_editor.send_script(LevelEditorApi.add_camera_component(unit_id
+				, component_id
+				, unit.get_component_property_string(component_id, "data.projection")
+				, unit.get_component_property_double(component_id, "data.fov")
+				, unit.get_component_property_double(component_id, "data.far_range")
+				, unit.get_component_property_double(component_id, "data.near_range")
+				));
+		} else if (component_type == OBJECT_TYPE_MESH_RENDERER) {
+			_editor.send_script(LevelEditorApi.add_mesh_renderer_component(unit_id
+				, component_id
+				, unit.get_component_property_string(component_id, "data.mesh_resource")
+				, unit.get_component_property_string(component_id, "data.geometry_name")
+				, unit.get_component_property_string(component_id, "data.material")
+				, unit.get_component_property_bool  (component_id, "data.visible")
+				));
+		} else if (component_type == OBJECT_TYPE_SPRITE_RENDERER) {
+			_editor.send_script(LevelEditorApi.add_sprite_renderer_component(unit_id
+				, component_id
+				, unit.get_component_property_string(component_id, "data.sprite_resource")
+				, unit.get_component_property_string(component_id, "data.material")
+				, unit.get_component_property_double(component_id, "data.layer")
+				, unit.get_component_property_double(component_id, "data.depth")
+				, unit.get_component_property_bool  (component_id, "data.visible")
+				));
+		} else if (component_type == OBJECT_TYPE_LIGHT) {
+			_editor.send_script(LevelEditorApi.add_light_component(unit_id
+				, component_id
+				, unit.get_component_property_string (component_id, "data.type")
+				, unit.get_component_property_double (component_id, "data.range")
+				, unit.get_component_property_double (component_id, "data.intensity")
+				, unit.get_component_property_double (component_id, "data.spot_angle")
+				, unit.get_component_property_vector3(component_id, "data.color")
+				));
+		} else if (component_type == OBJECT_TYPE_SCRIPT) {
+			/*
+			_editor.send_script(LevelEditorApi.add_script_component(unit_id
+				, component_id
+				, unit.get_component_property_string(component_id, "type")
+				, unit.get_component_property_string(component_id, "data.script_resource")
+				));
+			 */
+		} else if (component_type == OBJECT_TYPE_COLLIDER) {
+			/*
+			_editor.send_script(LevelEditorApi.add_collider_component(unit_id
+				, component_id
+				, unit.get_component_property_string    (component_id, "type")
+				, unit.get_component_property_string    (component_id, "data.shape")
+				, unit.get_component_property_string    (component_id, "data.source")
+				// if "mesh"
+				, unit.get_component_property_string    (component_id, "data.scene")
+				, unit.get_component_property_string    (component_id, "data.name")
+				// if "inline"
+				, unit.get_component_property_vector3   (component_id, "data.collider_data.position")
+				, unit.get_component_property_quaternion(component_id, "data.collider_data.rotation")
+				, unit.get_component_property_vector3   (component_id, "data.collider_data.half_extents")
+				, unit.get_component_property_double    (component_id, "data.collider_data.radius")
+				, unit.get_component_property_double    (component_id, "data.collider_data.height")
+				));
+			 */
+		} else if (component_type == OBJECT_TYPE_ACTOR) {
+			/*
+			_editor.send_script(LevelEditorApi.add_actor_component(unit_id
+				, component_id
+				, unit.get_component_property_string(component_id, "type")
+				, unit.get_component_property_bool  (component_id, "data.lock_translation_x")
+				, unit.get_component_property_bool  (component_id, "data.lock_translation_y")
+				, unit.get_component_property_bool  (component_id, "data.lock_translation_z")
+				, unit.get_component_property_bool  (component_id, "data.lock_rotation_x")
+				, unit.get_component_property_bool  (component_id, "data.lock_rotation_y")
+				, unit.get_component_property_bool  (component_id, "data.lock_rotation_z")
+				, unit.get_component_property_string(component_id, "data.class")
+				, unit.get_component_property_double(component_id, "data.mass")
+				, unit.get_component_property_string(component_id, "data.collision_filter")
+				, unit.get_component_property_string(component_id, "data.material")
+				));
+			 */
+		} else if (component_type == OBJECT_TYPE_ANIMATION_STATE_MACHINE) {
+			/*
+			_editor.send_script(LevelEditorApi.add_animation_state_machine_component(unit_id
+				, component_id
+				, unit.get_component_property_string(component_id, "type")
+				, unit.get_component_property_string(component_id, "data.state_machine_resource")
+				));
+			 */
+		} else {
+			logw("Unregistered component type `%s`".printf(component_type));
+		}
+
+		_editor.send(DeviceApi.frame());
+	}
+
+	private void send_unit_remove_component(Guid unit_id, Guid component_id)
+	{
+		string component_type = _database.get_property_string(component_id, "type");
+		_editor.send_script(LevelEditorApi.unit_destroy_component_type(unit_id, component_type));
+		_editor.send(DeviceApi.frame());
+	}
+
+	private void unit_add_component_type_dependencies(Unit unit, string component_type)
+	{
+		Guid dummy;
+		if (unit.has_component(out dummy, component_type))
+			return;
+
+		string[] component_type_dependencies = ((string)Unit._component_registry[component_type]).split(", ");
+		foreach (unowned string dependency in component_type_dependencies) {
+			Guid dependency_component_id;
+			if (!unit.has_component(out dependency_component_id, dependency))
+				unit_add_component_type_dependencies(unit, dependency);
+		}
+
+		Guid component_id = unit.add_component_type(component_type);
+		send_unit_add_component(unit._id, component_id);
+	}
+
+	private void on_unit_add_component(GLib.SimpleAction action, GLib.Variant? param)
+	{
+		if (param == null)
+			return;
+
+		string component_type = param.get_string();
+		Guid unit_id = _level._selection.last();
+		Unit unit = new Unit(_database, unit_id);
+		unit_add_component_type_dependencies(unit, component_type);
+
+		// FIXME: hack to force PropertiesView to update.
+		_level.selection_changed(_level._selection);
+	}
+
+	private void on_unit_remove_component(GLib.SimpleAction action, GLib.Variant? param)
+	{
+		if (param == null)
+			return;
+
+		string component_type = param.get_string();
+		Guid unit_id = _level._selection.last();
+		Unit unit = new Unit(_database, unit_id);
+
+		Guid component_id;
+		if (!unit.has_component(out component_id, component_type))
+			return;
+
+		// Do not remove if any other component needs us.
+		foreach (var entry in Unit._component_registry.entries) {
+			Guid dummy;
+			if (!unit.has_component(out dummy, entry.key))
+				continue;
+
+			string[] component_type_dependencies = ((string)entry.value).split(", ");
+			if (component_type in component_type_dependencies)
+				return; // FIXME: report an error to the user.
+		}
+
+		unit.remove_component_type(component_type);
+		send_unit_remove_component(unit_id, component_id);
+		// FIXME: hack to force PropertiesView to update.
+		_level.selection_changed(_level._selection);
+	}
+
 	public void set_autosave_timer(uint minutes)
 	{
 		if (_save_timer_id > 0)
@@ -2599,6 +2843,8 @@ public static void log(string system, string severity, string message)
 
 		_console_view.log(severity, line);
 	}
+
+	stdout.printf("%s\n", message);
 }
 
 public static void logi(string message)

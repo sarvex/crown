@@ -419,6 +419,16 @@ public class Project
 
 		_map[path] = id;
 
+		// NEW STUFF
+#if 0
+		_database.create(id, OBJECT_TYPE_FILE);
+		_database.set_property_string(id, "resource_path", path);
+		_database.set_property_string(id, "resource_type", type);
+		_database.set_property_string(id, "resource_name", name);
+		_database.set_property_double(id, "size", 0); // TODO: send file size
+		_database.set_property_guid  (id, "data", GUID_ZERO); // Reference to the loaded file (initially not loaded).
+#endif
+
 		file_added(type, name);
 	}
 

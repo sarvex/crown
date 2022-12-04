@@ -21,7 +21,10 @@
 #include "resource/unit_compiler.h"
 #include "resource/unit_resource.h"
 #include "world/types.h"
+#include "device/log.h"
 #include <algorithm>
+
+LOG_SYSTEM(UNIT_COMPILER, "unit_compiler")
 
 namespace crown
 {
@@ -483,11 +486,18 @@ s32 UnitCompiler::compile_unit_from_json(const char *json, const u32 parent)
 					merged_components_data[comp_idx] = modified_component["data"];
 				} else {
 					char buf[GUID_BUF_LEN];
+#if 1
+					logw(UNIT_COMPILER
+						, "Modification of unexisting component ID: %s"
+						, guid::to_string(buf, sizeof(buf), component_id)
+						);
+#else
 					DATA_COMPILER_ASSERT(false
 						, _opts
 						, "Modification of unexisting component ID: %s\n"
 						, guid::to_string(buf, sizeof(buf), component_id)
 						);
+#endif
 				}
 			}
 		}
