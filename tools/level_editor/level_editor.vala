@@ -345,7 +345,7 @@ public class LevelEditorApplication : Gtk.Application
 	private Gtk.Label _project_stack_compiler_crashed_label;
 	private Gtk.Label _project_stack_compiler_failed_compilation_label;
 
-	private Gtk.Stack _editor_stack;
+	private MyStack _editor_stack;
 	private Gtk.Label _editor_stack_compiling_data_label;
 	private Gtk.Label _editor_stack_connecting_to_data_compiler_label;
 	private Gtk.Label _editor_stack_compiler_crashed_label;
@@ -366,11 +366,7 @@ public class LevelEditorApplication : Gtk.Application
 
 	private Gtk.Toolbar _toolbar;
 	private Gtk.ToolButton _toolbar_run;
-	private Gtk.Notebook _level_tree_view_notebook;
-	private Gtk.Paned _editor_pane;
-	private Gtk.Paned _content_pane;
-	private Gtk.Paned _inspector_pane;
-	private Gtk.Paned _main_pane;
+	private Dock _main_dock;
 	private Statusbar _statusbar;
 	private Gtk.Box _main_vbox;
 	private Gtk.FileFilter _file_filter;
@@ -555,7 +551,7 @@ public class LevelEditorApplication : Gtk.Application
 		_project_stack_compiler_failed_compilation_label = compiler_failed_compilation_label();
 		_project_stack.add(_project_stack_compiler_failed_compilation_label);
 
-		_editor_stack = new Gtk.Stack();
+		_editor_stack = new MyStack();
 		_editor_stack_compiling_data_label = compiling_data_label();
 		_editor_stack.add(_editor_stack_compiling_data_label);
 		_editor_stack_connecting_to_data_compiler_label = connecting_to_data_compiler_label();
@@ -601,6 +597,7 @@ public class LevelEditorApplication : Gtk.Application
 		_inspector_stack.add(_inspector_stack_compiler_crashed_label);
 		_inspector_stack_compiler_failed_compilation_label = compiler_failed_compilation_label();
 		_inspector_stack.add(_inspector_stack_compiler_failed_compilation_label);
+		_inspector_stack.add(_properties_view);
 
 		Gtk.Builder builder = new Gtk.Builder.from_resource("/org/crown/level_editor/ui/toolbar.ui");
 		_toolbar = builder.get_object("toolbar") as Gtk.Toolbar;
@@ -661,32 +658,23 @@ public class LevelEditorApplication : Gtk.Application
 
 		_resource_popover.add(_resource_chooser);
 
-		_level_tree_view_notebook = new Notebook();
-		_level_tree_view_notebook.show_border = false;
-		_level_tree_view_notebook.append_page(_level_treeview, new Gtk.Image.from_icon_name("level-tree", IconSize.SMALL_TOOLBAR));
-		_level_tree_view_notebook.append_page(_level_layers_treeview, new Gtk.Image.from_icon_name("level-layers", IconSize.SMALL_TOOLBAR));
+		_main_dock = new Dock();
+		_main_dock._multipaned.add_with_notebook(_project_stack, new Gtk.Label("Project"));
+		_main_dock._multipaned.add_with_notebook(_editor_stack, new Gtk.Label("Editor"));
+		_main_dock._multipaned.add_with_notebook(_console_view, new Gtk.Label("Console"));
 
-		_editor_pane = new Gtk.Paned(Gtk.Orientation.HORIZONTAL);
-		_editor_pane.pack1(_project_stack, false, false);
-		_editor_pane.pack2(_editor_stack, true, false);
-
-		_content_pane = new Gtk.Paned(Gtk.Orientation.VERTICAL);
-		_content_pane.pack1(_editor_pane, true, false);
-		_content_pane.pack2(_console_view, false, false);
-
-		_inspector_pane = new Gtk.Paned(Gtk.Orientation.VERTICAL);
-		_inspector_pane.pack1(_level_tree_view_notebook, true, false);
-		_inspector_pane.pack2(_properties_view, false, false);
-		_inspector_stack.add(_inspector_pane);
-
-		_main_pane = new Gtk.Paned(Gtk.Orientation.HORIZONTAL);
-		_main_pane.pack1(_content_pane, true, false);
-		_main_pane.pack2(_inspector_stack, false, false);
+		Notebook level_nb = _main_dock._multipaned.add_with_notebook(_level_treeview
+			, new Gtk.Image.from_icon_name("level-tree", IconSize.SMALL_TOOLBAR)
+			);
+		level_nb.append_page(_level_layers_treeview
+			, new Gtk.Image.from_icon_name("level-layers", IconSize.SMALL_TOOLBAR)
+			);
+		level_nb.append_page(_inspector_stack, new Gtk.Label("Properties"));
 
 		_statusbar = new Statusbar();
 
 		_main_vbox = new Gtk.Box(Gtk.Orientation.VERTICAL, 0);
-		_main_vbox.pack_start(_main_pane, true, true, 0);
+		_main_vbox.pack_start(_main_dock, true, true, 0);
 		_main_vbox.pack_start(_statusbar, false, false, 0);
 		_main_vbox.set_visible(true);
 
@@ -1211,7 +1199,7 @@ public class LevelEditorApplication : Gtk.Application
 							restart_editor.end(res);
 
 							_project_stack.set_visible_child(_project_browser);
-							_inspector_stack.set_visible_child(_inspector_pane);
+							_inspector_stack.set_visible_child(_properties_view);
 						});
 				} else {
 					_project_stack.set_visible_child(_project_stack_compiler_failed_compilation_label);
@@ -2511,10 +2499,10 @@ public class LevelEditorApplication : Gtk.Application
 			int win_w;
 			int win_h;
 			this.active_window.get_size(out win_w, out win_h);
-			_editor_pane.set_position(210);
-			_content_pane.set_position(win_h - 250);
-			_inspector_pane.set_position(win_h - 600);
-			_main_pane.set_position(win_w - 375);
+			// _editor_pane.set_position(210);
+			// _content_pane.set_position(win_h - 250);
+			// _inspector_pane.set_position(win_h - 600);
+			// _main_pane.set_position(win_w - 375);
 
 			menu_set_enabled(true, action_entries_file);
 			menu_set_enabled(true, action_entries_edit);
@@ -2587,6 +2575,8 @@ public static void log(string system, string severity, string message)
 		_log_stream.puts(plain_text_line);
 		_log_stream.flush();
 	}
+
+	stdout.printf("%s\n", message);
 
 	if (_console_view_valid) {
 		string line = "%s.%06d  %s: %s\n".printf(now_str
