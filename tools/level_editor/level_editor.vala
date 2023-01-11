@@ -659,9 +659,10 @@ public class LevelEditorApplication : Gtk.Application
 		_resource_popover.add(_resource_chooser);
 
 		_main_dock = new Dock();
-		_main_dock._multipaned.add_with_notebook(_project_stack, new Gtk.Label("Project"));
+		var project_nb = _main_dock._multipaned.add_with_notebook(_project_stack, new Gtk.Label("Project"));
 		_main_dock._multipaned.add_with_notebook(_editor_stack, new Gtk.Label("Editor"));
 		_main_dock._multipaned.add_with_notebook(_console_view, new Gtk.Label("Console"));
+		_main_dock._multipaned.child_set(project_nb, "position", 300, null);
 
 		Notebook level_nb = _main_dock._multipaned.add_with_notebook(_level_treeview
 			, new Gtk.Image.from_icon_name("level-tree", IconSize.SMALL_TOOLBAR)
@@ -670,6 +671,7 @@ public class LevelEditorApplication : Gtk.Application
 			, new Gtk.Image.from_icon_name("level-layers", IconSize.SMALL_TOOLBAR)
 			);
 		level_nb.append_page(_inspector_stack, new Gtk.Label("Properties"));
+		_main_dock._multipaned.child_set(level_nb, "position", 350, null);
 
 		_statusbar = new Statusbar();
 
