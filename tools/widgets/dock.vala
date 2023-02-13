@@ -302,6 +302,12 @@ public class Notebook : Gtk.Overlay
 		_drop_area.set_visible_window(false);
 		_drop_area.set_data("notebook", this);
 
+		Gtk.drag_dest_set(_drop_area
+			, Gtk.DestDefaults.MOTION | Gtk.DestDefaults.HIGHLIGHT
+			, targets
+			, Gdk.DragAction.MOVE
+			);
+
 		this.add(_notebook);
 		this.add_overlay(_drop_area);
 	}
@@ -521,58 +527,58 @@ public class Multipaned : Dazzle.MultiPaned
 
 	public static void setup_callbacks(Multipaned mp, Notebook notebook)
 	{
-		Gtk.Widget widget = notebook._drop_area;
+		Gtk.EventBox drop_area = notebook._drop_area;
 		ulong handler_id;
 		notebook.set_data("multipaned", mp);
 		Dock mp_dock = mp.get_data("dock");
 		notebook.set_data("dock", mp_dock);
 
-		print("setup_callbacks widget %p mp %p\n", widget, mp);
+		print("setup_callbacks drop_area %p mp %p\n", drop_area, mp);
 
-		widget.draw.disconnect(draw111);
-		widget.draw.connect(draw111);
+		drop_area.draw.disconnect(draw111);
+		drop_area.draw.connect(draw111);
 
-		widget.drag_motion.disconnect(widget.get_data("drag_motion_handler"));
-		handler_id = widget.drag_motion.connect((context, x, y, time_) => {
+		drop_area.drag_motion.disconnect(drop_area.get_data("drag_motion_handler"));
+		handler_id = drop_area.drag_motion.connect((context, x, y, time_) => {
 				// stdout.printf("dragging\n");
 				mouse_x = x;
 				mouse_y = y;
-				widget.set_data("should_draw", true);
-				Notebook nb = widget.get_data("notebook");
+				drop_area.set_data("should_draw", true);
+				Notebook nb = drop_area.get_data("notebook");
 				Dock dock = nb.get_data("dock");
 				dock._dragging = true;
 				dock.queue_draw();
-				widget.queue_draw();
+				drop_area.queue_draw();
 				return Gdk.EVENT_PROPAGATE;
 			});
-		widget.set_data("drag_motion_handler", handler_id);
+		drop_area.set_data("drag_motion_handler", handler_id);
 
-		stdout.printf("%p\n", widget.get_data("drag_leave_handler"));
-		widget.drag_leave.disconnect(widget.get_data("drag_leave_handler"));
-		handler_id = widget.drag_leave.connect (() => {
+		stdout.printf("%p\n", drop_area.get_data("drag_leave_handler"));
+		drop_area.drag_leave.disconnect(drop_area.get_data("drag_leave_handler"));
+		handler_id = drop_area.drag_leave.connect (() => {
 				stdout.printf("drag leave\n");
-				widget.set_data("should_draw", false);
-				Notebook nb = widget.get_data("notebook");
+				drop_area.set_data("should_draw", false);
+				Notebook nb = drop_area.get_data("notebook");
 				Dock dock = nb.get_data("dock");
 				dock._dragging = false;
 				dock.queue_draw();
-				widget.queue_draw();
+				drop_area.queue_draw();
 			});
-		widget.set_data("drag_leave_handler", handler_id);
+		drop_area.set_data("drag_leave_handler", handler_id);
 
 		// Widge dropped onto a drag area.
-		widget.drag_drop.disconnect(widget.get_data("drag_drop_handler"));
-		handler_id = widget.drag_drop.connect((context, x, y, time_) => {
+		drop_area.drag_drop.disconnect(drop_area.get_data("drag_drop_handler"));
+		handler_id = drop_area.drag_drop.connect((context, x, y, time_) => {
 				Gtk.Widget source_widget = Gtk.drag_get_source_widget(context);
 				if (source_widget is NotebookTab) {
 					stdout.printf("Dropped NotebookTab %p\n", source_widget);
 				}
 
-				Notebook nb = widget.get_data("notebook");
+				Notebook nb = drop_area.get_data("notebook");
 				Multipaned multip = nb.get_data("multipaned");
 
 				// Check whether the widget has been dropped on a hot-spot.
-				HandleSide hit_mask = widget.get_data("hit_mask");
+				HandleSide hit_mask = drop_area.get_data("hit_mask");
 
 				if (HandleSide.TOP in hit_mask) {
 					multip.split_and_insert(nb, (NotebookTab)source_widget, Gtk.Orientation.VERTICAL, 0);
@@ -601,13 +607,7 @@ public class Multipaned : Dazzle.MultiPaned
 					return Gdk.EVENT_STOP;
 				}
 			});
-		widget.set_data("drag_drop_handler", handler_id);
-
-		Gtk.drag_dest_set(widget
-			, Gtk.DestDefaults.MOTION | Gtk.DestDefaults.HIGHLIGHT
-			, targets
-			, Gdk.DragAction.MOVE
-			);
+		drop_area.set_data("drag_drop_handler", handler_id);
 	}
 
 	// Adds @a widget to the end of the multipane, creating a new notebook to
@@ -624,6 +624,7 @@ public class Multipaned : Dazzle.MultiPaned
 	public override void add(Gtk.Widget widget)
 	{
 		if (widget is Notebook) {
+			stdout.printf("MULTIPANED ADDDDDDDDDD\n");
 			Notebook nb = (Notebook)widget;
 			nb._multipaned = this;
 			setup_callbacks(this, nb);
@@ -707,9 +708,6 @@ public class Multipaned : Dazzle.MultiPaned
 
 					mp.add(new_mp);
 				}
-
-				setup_callbacks(new_mp, left);
-				setup_callbacks(new_mp, right);
 			} else {
 				stdout.printf("adding %p\n", src_notebook);
 				// Add in the same order as before.
@@ -741,8 +739,6 @@ public class Multipaned : Dazzle.MultiPaned
 
 		if (src_notebook.get_n_pages() == 0)
 			src_notebook._multipaned.remove(src_notebook);
-
-		setup_callbacks(dst_notebook.get_data("multipaned"), dst_notebook);
 	}
 }
 
