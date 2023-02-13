@@ -9,7 +9,7 @@
 
 // TODO:
 // [x] sometimes docking leaves behind widgets
-// [ ] drag_leave events always increase after split_and_insert()
+// [x] drag_leave events always increase after split_and_insert()
 // [ ] sometimes docking gets stuck in "dragging mode"
 
 using Gtk;
@@ -282,11 +282,109 @@ public class NotebookTab : Gtk.EventBox
 	}
 }
 
+public class DropArea : Gtk.EventBox
+{
+	public Notebook _notebook;
+	public bool _should_draw;
+	public HandleSide _hit_mask;
+
+	public DropArea(Notebook nb)
+	{
+		_notebook = nb;
+		_should_draw = false;
+		_hit_mask = 0;
+
+		Gtk.drag_dest_set(this
+			, Gtk.DestDefaults.MOTION | Gtk.DestDefaults.HIGHLIGHT
+			, targets
+			, Gdk.DragAction.MOVE
+			);
+
+		this.draw.connect(on_draw);
+		this.drag_motion.connect(on_drag_motion);
+		this.drag_leave.connect(on_drag_leave);
+		this.drag_drop.connect(on_drag_drop);
+	}
+
+	public bool on_draw(Gtk.Widget widget, Cairo.Context cr)
+	{
+		if (!_should_draw)
+			return Gdk.EVENT_PROPAGATE;
+
+		Gdk.Rectangle mouse_rect = { mouse_x, mouse_y, 2, 2 };
+		Gtk.Allocation alloc;
+		widget.get_allocation(out alloc);
+		_hit_mask = draw_inner_split_handles(cr, alloc, mouse_rect);
+		return Gdk.EVENT_PROPAGATE;
+	}
+
+	public bool on_drag_motion(DragContext context, int x, int y, uint time_)
+	{
+		// stdout.printf("dragging\n");
+		mouse_x = x;
+		mouse_y = y;
+		_should_draw = true;
+		Dock dock = _notebook._multipaned._dock;
+		dock._dragging = true;
+		dock.queue_draw();
+		this.queue_draw();
+		return Gdk.EVENT_PROPAGATE;
+	}
+
+	public void on_drag_leave(DragContext context, uint time_)
+	{
+		stdout.printf("drag leave from drop_area %p\n", this);
+		_should_draw = false;
+		Dock dock = _notebook._multipaned._dock;
+		dock._dragging = false;
+		dock.queue_draw();
+		this.queue_draw();
+	}
+
+	public bool on_drag_drop(DragContext context, int x, int y, uint time_)
+	{
+		Gtk.Widget source_widget = Gtk.drag_get_source_widget(context);
+		if (source_widget is NotebookTab) {
+			stdout.printf("Dropped NotebookTab %p\n", source_widget);
+		}
+
+		Multipaned mp = _notebook._multipaned;
+
+		// Check whether the widget has been dropped on a hot-spot.
+		if (HandleSide.TOP in _hit_mask) {
+			mp.split_and_insert(_notebook, (NotebookTab)source_widget, Gtk.Orientation.VERTICAL, 0);
+			drag_finish(context, true, true, time_);
+			return Gdk.EVENT_STOP;
+		} else if (HandleSide.BOTTOM in _hit_mask) {
+			mp.split_and_insert(_notebook, (NotebookTab)source_widget, Gtk.Orientation.VERTICAL, 1);
+			drag_finish(context, true, true, time_);
+			return Gdk.EVENT_STOP;
+		} else if (HandleSide.LEFT in _hit_mask) {
+			mp.split_and_insert(_notebook, (NotebookTab)source_widget, Gtk.Orientation.HORIZONTAL, 0);
+			drag_finish(context, true, true, time_);
+			return Gdk.EVENT_STOP;
+		} else if (HandleSide.RIGHT in _hit_mask) {
+			mp.split_and_insert(_notebook, (NotebookTab)source_widget, Gtk.Orientation.HORIZONTAL, 1);
+			drag_finish(context, true, true, time_);
+			return Gdk.EVENT_STOP;
+		} else if (HandleSide.CENTER in _hit_mask) {
+			mp.add_center(_notebook, (NotebookTab)source_widget);
+			drag_finish(context, true, true, time_);
+			return Gdk.EVENT_STOP;
+		} else { // No hits inside inner handles.
+			Dock dock = mp._dock;
+			dock.widget_dropped((NotebookTab)source_widget);
+			drag_finish(context, true, true, time_);
+			return Gdk.EVENT_STOP;
+		}
+	}
+}
+
 public class Notebook : Gtk.Overlay
 {
 	public Multipaned? _multipaned;
 	public Gtk.Notebook _notebook;
-	public Gtk.EventBox _drop_area;
+	public DropArea _drop_area;
 
 	public Notebook()
 	{
@@ -298,15 +396,8 @@ public class Notebook : Gtk.Overlay
 		_notebook.page_removed.connect(on_page_removed);
 		_notebook.set_scrollable(true); // The tab label area will have arrows for scrolling.
 
-		_drop_area = new Gtk.EventBox();
+		_drop_area = new DropArea(this);
 		_drop_area.set_visible_window(false);
-		_drop_area.set_data("notebook", this);
-
-		Gtk.drag_dest_set(_drop_area
-			, Gtk.DestDefaults.MOTION | Gtk.DestDefaults.HIGHLIGHT
-			, targets
-			, Gdk.DragAction.MOVE
-			);
 
 		this.add(_notebook);
 		this.add_overlay(_drop_area);
@@ -353,7 +444,6 @@ public class Dock : Gtk.Bin
 	public Dock()
 	{
 		_multipaned = new Multipaned(this, Gtk.Orientation.HORIZONTAL);
-		_multipaned.set_data("dock", this);
 
 		_hit_mask = 0;
 
@@ -442,7 +532,6 @@ public class Dock : Gtk.Bin
 			_multipaned.show_all();
 		} else {
 			var new_mp = new Multipaned(this, orientation);
-			new_mp.set_data("dock", this);
 			Notebook src_notebook = tab._notebook;
 			Gtk.Widget src_notebook_widget = tab._widget;
 			src_notebook.remove(src_notebook_widget);
@@ -460,7 +549,6 @@ public class Dock : Gtk.Bin
 			_multipaned.show_all();
 		} else {
 			var new_mp = new Multipaned(this, orientation);
-			new_mp.set_data("dock", this);
 			new_mp.add(_multipaned);
 			new_mp.add_with_notebook(widget, new Gtk.Label("Ochei"));
 			new_mp.show_all();
@@ -511,103 +599,9 @@ public class Multipaned : Dazzle.MultiPaned
 		this.orientation = orientation;
 	}
 
-	public static bool draw111(Gtk.Widget widget, Cairo.Context cr)
-	{
-		bool should_draw = widget.get_data("should_draw");
-		if (!should_draw)
-			return Gdk.EVENT_PROPAGATE;
-
-		Gdk.Rectangle mouse_rect = { mouse_x, mouse_y, 2, 2 };
-		Gtk.Allocation alloc;
-		widget.get_allocation(out alloc);
-		HandleSide hit_mask = draw_inner_split_handles(cr, alloc, mouse_rect);
-		widget.set_data("hit_mask", hit_mask);
-		return Gdk.EVENT_PROPAGATE;
-	}
-
 	public static void setup_callbacks(Multipaned mp, Notebook notebook)
 	{
-		Gtk.EventBox drop_area = notebook._drop_area;
-		ulong handler_id;
-		notebook.set_data("multipaned", mp);
-		Dock mp_dock = mp.get_data("dock");
-		notebook.set_data("dock", mp_dock);
-
-		print("setup_callbacks drop_area %p mp %p\n", drop_area, mp);
-
-		drop_area.draw.disconnect(draw111);
-		drop_area.draw.connect(draw111);
-
-		drop_area.drag_motion.disconnect(drop_area.get_data("drag_motion_handler"));
-		handler_id = drop_area.drag_motion.connect((context, x, y, time_) => {
-				// stdout.printf("dragging\n");
-				mouse_x = x;
-				mouse_y = y;
-				drop_area.set_data("should_draw", true);
-				Notebook nb = drop_area.get_data("notebook");
-				Dock dock = nb.get_data("dock");
-				dock._dragging = true;
-				dock.queue_draw();
-				drop_area.queue_draw();
-				return Gdk.EVENT_PROPAGATE;
-			});
-		drop_area.set_data("drag_motion_handler", handler_id);
-
-		stdout.printf("%p\n", drop_area.get_data("drag_leave_handler"));
-		drop_area.drag_leave.disconnect(drop_area.get_data("drag_leave_handler"));
-		handler_id = drop_area.drag_leave.connect (() => {
-				stdout.printf("drag leave\n");
-				drop_area.set_data("should_draw", false);
-				Notebook nb = drop_area.get_data("notebook");
-				Dock dock = nb.get_data("dock");
-				dock._dragging = false;
-				dock.queue_draw();
-				drop_area.queue_draw();
-			});
-		drop_area.set_data("drag_leave_handler", handler_id);
-
-		// Widge dropped onto a drag area.
-		drop_area.drag_drop.disconnect(drop_area.get_data("drag_drop_handler"));
-		handler_id = drop_area.drag_drop.connect((context, x, y, time_) => {
-				Gtk.Widget source_widget = Gtk.drag_get_source_widget(context);
-				if (source_widget is NotebookTab) {
-					stdout.printf("Dropped NotebookTab %p\n", source_widget);
-				}
-
-				Notebook nb = drop_area.get_data("notebook");
-				Multipaned multip = nb.get_data("multipaned");
-
-				// Check whether the widget has been dropped on a hot-spot.
-				HandleSide hit_mask = drop_area.get_data("hit_mask");
-
-				if (HandleSide.TOP in hit_mask) {
-					multip.split_and_insert(nb, (NotebookTab)source_widget, Gtk.Orientation.VERTICAL, 0);
-					drag_finish(context, true, true, time_);
-					return Gdk.EVENT_STOP;
-				} else if (HandleSide.BOTTOM in hit_mask) {
-					multip.split_and_insert(nb, (NotebookTab)source_widget, Gtk.Orientation.VERTICAL, 1);
-					drag_finish(context, true, true, time_);
-					return Gdk.EVENT_STOP;
-				} else if (HandleSide.LEFT in hit_mask) {
-					multip.split_and_insert(nb, (NotebookTab)source_widget, Gtk.Orientation.HORIZONTAL, 0);
-					drag_finish(context, true, true, time_);
-					return Gdk.EVENT_STOP;
-				} else if (HandleSide.RIGHT in hit_mask) {
-					multip.split_and_insert(nb, (NotebookTab)source_widget, Gtk.Orientation.HORIZONTAL, 1);
-					drag_finish(context, true, true, time_);
-					return Gdk.EVENT_STOP;
-				} else if (HandleSide.CENTER in hit_mask) {
-					multip.add_center(nb, (NotebookTab)source_widget);
-					drag_finish(context, true, true, time_);
-					return Gdk.EVENT_STOP;
-				} else { // No hits inside inner handles.
-					Dock dock = nb.get_data("dock");
-					dock.widget_dropped((NotebookTab)source_widget);
-					drag_finish(context, true, true, time_);
-					return Gdk.EVENT_STOP;
-				}
-			});
-		drop_area.set_data("drag_drop_handler", handler_id);
+		notebook._multipaned = mp;
 	}
 
 	// Adds @a widget to the end of the multipane, creating a new notebook to
@@ -649,8 +643,7 @@ public class Multipaned : Dazzle.MultiPaned
 			return;
 		}
 
-		Multipaned mp = dst_notebook.get_data("multipaned");
-		Dock mp_dock = mp.get_data("dock");
+		Multipaned mp = dst_notebook._multipaned;
 
 		// HACK: remove all children and later re-add them in correct order.
 		uint num_children = mp.get_n_children();
@@ -665,7 +658,7 @@ public class Multipaned : Dazzle.MultiPaned
 			mp.remove(old_widgets[ii]);
 		}
 
-		Multipaned src_mp = src_notebook.get_data("multipaned");
+		Multipaned src_mp = src_notebook._multipaned;
 		if (src_mp != mp) {
 			src_mp.remove(src_notebook);
 		}
@@ -702,7 +695,6 @@ public class Multipaned : Dazzle.MultiPaned
 				} else {
 					// Create new multipaned.
 					new_mp = new Multipaned(mp._dock, orientation);
-					new_mp.set_data("dock", mp_dock);
 					new_mp.add(left);
 					new_mp.add(right);
 
