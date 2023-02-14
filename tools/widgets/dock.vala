@@ -599,11 +599,6 @@ public class Multipaned : Dazzle.MultiPaned
 		this.orientation = orientation;
 	}
 
-	public static void setup_callbacks(Multipaned mp, Notebook notebook)
-	{
-		notebook._multipaned = mp;
-	}
-
 	// Adds @a widget to the end of the multipane, creating a new notebook to
 	// accommodate it.
 	public Notebook add_with_notebook(Gtk.Widget widget, Gtk.Widget label_widget)
@@ -618,10 +613,8 @@ public class Multipaned : Dazzle.MultiPaned
 	public override void add(Gtk.Widget widget)
 	{
 		if (widget is Notebook) {
-			stdout.printf("MULTIPANED ADDDDDDDDDD\n");
 			Notebook nb = (Notebook)widget;
 			nb._multipaned = this;
-			setup_callbacks(this, nb);
 		} else if (widget is Multipaned) {
 			// Do nothing.
 		} else {
@@ -635,7 +628,7 @@ public class Multipaned : Dazzle.MultiPaned
 	// the order is resversed.
 	public void split_and_insert(Notebook dst_notebook, NotebookTab tab, Gtk.Orientation orientation, int reverse = 0)
 	{
-		stdout.printf("split and insert dst_notebook %p tab %p\n", dst_notebook, tab);
+		stdout.printf("split_and_insert: dst_notebook %p tab %p src_notebook %p\n", dst_notebook, tab, tab._notebook);
 
 		Notebook src_notebook = tab._notebook;
 		if (src_notebook == dst_notebook && src_notebook.get_n_pages() < 2) {
@@ -643,33 +636,35 @@ public class Multipaned : Dazzle.MultiPaned
 			return;
 		}
 
-		Multipaned mp = dst_notebook._multipaned;
+		Multipaned dst_mp = dst_notebook._multipaned;
 
 		// HACK: remove all children and later re-add them in correct order.
-		uint num_children = mp.get_n_children();
+		uint num_children = dst_mp.get_n_children();
 		Gtk.Widget[] old_widgets = new Gtk.Widget[num_children];
 
 		for (int ii = 0; ii < num_children; ++ii) {
-			Gtk.Widget child_ii = mp.get_nth_child(ii);
-			old_widgets[ii] = child_ii; // Save ref
+			old_widgets[ii] = dst_mp.get_nth_child(ii); // Save ref
 		}
 
 		for (int ii = 0; ii < num_children; ++ii) {
-			mp.remove(old_widgets[ii]);
+			dst_mp.remove(old_widgets[ii]);
 		}
 
+		//
 		Multipaned src_mp = src_notebook._multipaned;
-		if (src_mp != mp) {
+		if (src_mp != dst_mp) {
 			src_mp.remove(src_notebook);
 		}
 
 		Gtk.Widget src_notebook_widget = tab._widget;
 
+		stdout.printf("num_children %u\n", num_children);
 		for (int ii = 0; ii < num_children; ++ii) {
-			stdout.printf("old_widgets[ii] = %p src_notebook %p\n", old_widgets[ii], src_notebook);
+			stdout.printf("old_widgets[%d] = %p\n", ii, old_widgets[ii]);
 			if (old_widgets[ii] == dst_notebook) {
 				if (src_notebook.get_n_pages() == 1 && src_notebook == dst_notebook) {
-					mp.add(src_notebook);
+					stdout.printf("helo?\n");
+					dst_mp.add(src_notebook);
 					continue;
 				}
 
@@ -686,35 +681,35 @@ public class Multipaned : Dazzle.MultiPaned
 					right = nb;
 				}
 
-				Multipaned new_mp = mp; // Multipaned is the same as before.
+				Multipaned new_mp = dst_mp; // Multipaned is the same as before.
 
-				if (mp.orientation == orientation) {
-					// No need to create new mp if orientation matches.
-					mp.add(left);
-					mp.add(right);
+				if (dst_mp.orientation == orientation) {
+					// No need to create new dst_mp if orientation matches.
+					dst_mp.add(left);
+					dst_mp.add(right);
 				} else {
 					// Create new multipaned.
-					new_mp = new Multipaned(mp._dock, orientation);
+					new_mp = new Multipaned(dst_mp._dock, orientation);
 					new_mp.add(left);
 					new_mp.add(right);
 
-					mp.add(new_mp);
+					dst_mp.add(new_mp);
 				}
 			} else {
-				stdout.printf("adding %p\n", src_notebook);
 				// Add in the same order as before.
-				if (old_widgets[ii] == src_notebook && src_notebook.get_n_pages() == 0) {
-					stdout.printf("skipped notebook %p\n", src_notebook);
+				if (old_widgets[ii] == src_notebook) {
+					stdout.printf("skipped src_notebook %p\n", src_notebook);
 					continue;
 				}
 
-				mp.add(old_widgets[ii]);
+				stdout.printf("adding %p\n", old_widgets[ii]);
+				dst_mp.add(old_widgets[ii]);
 			}
 		}
 
 		stdout.printf("end of split_and_insert\n");
 
-		mp.show_all();
+		dst_mp.show_all();
 	}
 
 	public void add_center(Notebook dst_notebook, NotebookTab tab)
