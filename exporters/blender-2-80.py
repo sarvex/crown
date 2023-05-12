@@ -249,15 +249,14 @@ def _write(context
 
 	objects = context.selected_objects if EXPORT_SEL_ONLY else scene.objects
 
-	f = open(filepath, "wb")
-	write_file(f
-		, objects
-		, scene
-		, EXPORT_NORMALS
-		, EXPORT_UV
-		, EXPORT_APPLY_MODIFIERS
-	)
-	f.close()
+	with open(filepath, "wb") as f:
+		write_file(f
+			, objects
+			, scene
+			, EXPORT_NORMALS
+			, EXPORT_UV
+			, EXPORT_APPLY_MODIFIERS
+		)
 
 def save(operator
 	, context

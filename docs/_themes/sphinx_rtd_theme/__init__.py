@@ -20,8 +20,7 @@ logger = getLogger(__name__)
 
 def get_html_theme_path():
     """Return list of HTML theme paths."""
-    cur_dir = path.abspath(path.dirname(path.dirname(__file__)))
-    return cur_dir
+    return path.abspath(path.dirname(path.dirname(__file__)))
 
 
 def config_initiated(app, config):
@@ -40,9 +39,8 @@ def setup(app):
         logger.warning("Sphinx 1.x is deprecated with sphinx_rtd_theme, update to Sphinx 2.x or greater")
         if not app.config.html_experimental_html5_writer:
             logger.warning("'html4_writer' is deprecated with sphinx_rtd_theme")
-    else:
-        if app.config.html4_writer:
-            logger.warning("'html4_writer' is deprecated with sphinx_rtd_theme")
+    elif app.config.html4_writer:
+        logger.warning("'html4_writer' is deprecated with sphinx_rtd_theme")
 
     # Register the theme that can be referenced without adding a theme path
     app.add_html_theme('sphinx_rtd_theme', path.abspath(path.dirname(__file__)))
